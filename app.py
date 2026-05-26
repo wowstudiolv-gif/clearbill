@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import re
@@ -213,12 +214,6 @@ def clean_reimbursement(file):
     "Amount"
     ]]
 
-def highlight_duplicates_row(row):
-        if row["is_duplicate"]:
-            return ["background-color: #fff3cd"] * len(row)  # light yellow
-        else:
-            return [""] * len(row)
-
 invoice_files = st.file_uploader(
     "Upload invoice Excel",
     type=["xlsx"],
@@ -321,7 +316,8 @@ if reimbursement_files:
                 (skipped_df["Street Name"] == row["Street Name"]) &
                 (skipped_df["Unit Number"] == row["Unit Number"]) &
                 (skipped_df["Bill Month"] == row["Bill Month"]) &
-                (skipped_df["Amount"] == row["Amount"])
+                (skipped_df["Amount"] == row["Amount"]) &
+                (skipped_df["Description"] == row["Description"])
             ).any() if not skipped_df.empty else False,
             axis=1
         )
@@ -358,6 +354,12 @@ with st.expander("Manual Entry"):
         submitted = st.form_submit_button("Save Manual Entry")
 
     if submitted:
+        try:
+            bill_month_parsed = pd.to_datetime(bill_month).to_period("M").strftime("%Y-%m")
+        except Exception:
+            st.error("Invalid date. Use a format like 2026-05 or 5/8/26.")
+            st.stop()
+
         house_number, street_name, unit_number = split_property(property_value)
 
         manual_df = pd.DataFrame([{
@@ -367,7 +369,7 @@ with st.expander("Manual Entry"):
             "Street Name": street_name,
             "Unit Number": unit_number,
             "Description": description,
-            "Bill Month": pd.to_datetime(bill_month).to_period("M").strftime("%Y-%m"),
+            "Bill Month": bill_month_parsed,
             "Amount": amount
         }])
 
@@ -393,6 +395,9 @@ if not db.empty:
 
     invoices_db = invoices_db.sort_values("bill_month_sort")
     reimb_db = reimb_db.sort_values("bill_month_sort")
+
+    invoices_db["amount"] = invoices_db["amount"].round(2)
+    reimb_db["amount"] = reimb_db["amount"].round(2)
 
     # create match index per property+amount
     invoices_db["match_num"] = invoices_db.groupby(match_cols).cumcount()
@@ -447,6 +452,8 @@ if not db.empty:
             return ["background-color: #c6f7c3"] * len(row)
         elif row["Status"] == "Open":
             return ["background-color: #f7c6c6"] * len(row)
+        elif row["Status"] == "Review":
+            return ["background-color: #c6e2f7"] * len(row)
         else:
             return [""] * len(row)
 
@@ -456,6 +463,12 @@ if not db.empty:
 
     st.subheader("Reconciliation Result")
     st.dataframe(styled)
+    st.download_button(
+        "Download CSV",
+        result.to_csv(index=False),
+        file_name="reconciliation.csv",
+        mime="text/csv"
+    )
 
 with st.expander("Delete Entry"):
     delete_id = st.number_input("Enter ID to delete", min_value=1, step=1)
